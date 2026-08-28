@@ -6,7 +6,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from .octree import Octree, build_octree
+from ..octree import Octree, build_octree
 
 
 class OctreeNodeDataset(Dataset):

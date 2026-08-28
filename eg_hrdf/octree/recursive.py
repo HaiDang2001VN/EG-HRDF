@@ -55,7 +55,7 @@ class Octree:
         return len(self.depth)
 
     def internal_mask(self) -> np.ndarray:
-        return self.children[:, 0] >= 0
+        return (self.children >= 0).any(axis=1)
 
     def nodes_at_depth(self, d: int) -> np.ndarray:
         return np.nonzero(self.depth == d)[0]
@@ -92,6 +92,7 @@ def build_octree(
     normalize: bool = True,
     origin: Optional[np.ndarray] = None,
     span: Optional[np.ndarray] = None,
+    min_points: int = 1,
 ) -> Octree:
     if normalize:
         pts, origin, span = normalize_points(points)
@@ -122,7 +123,7 @@ def build_octree(
         centroid_list.append(pts[idx].mean(axis=0))
         children_list.append(np.full(8, -1, dtype=np.int64))
 
-        if depth == max_depth or len(idx) == 1:
+        if depth == max_depth or len(idx) <= min_points:
             return node
 
         scale = 2 ** (depth + 1)

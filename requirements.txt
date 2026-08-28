@@ -11,3 +11,7 @@ trimesh
 open3d
 pillow
 pprintpp
+pyarrow>=14
+fsspec
+huggingface_hub
+datasets==3.6.0
