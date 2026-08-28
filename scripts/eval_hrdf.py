@@ -17,7 +17,7 @@ import torch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from eg_hrdf import AdaptiveDensityScheduler, FiLMDensityFlowNet, SchedulerConfig
+from eg_hrdf import AdaptiveDensityScheduler, FiLMDensityFlowNet, PerceiverDensityFlowNet, SchedulerConfig
 from eg_hrdf.data import ShapeNetSDFObjectStream, StreamMode
 from eg_hrdf.evaluation import cov_mmd_1nna, jsd_between_point_cloud_sets, mmd_dcd
 from eg_hrdf.hier_latent import HierarchicalLatentGenerator
@@ -26,8 +26,13 @@ from eg_hrdf.hier_latent import HierarchicalLatentGenerator
 def load_model(ckpt_path, device):
     ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     args = ckpt["args"]
-    net = FiLMDensityFlowNet(z_dim=args["z_dim"] if args["z_mode"] != "none" else 0,
-                             text_dim=512 if args.get("text_embeddings") else 0)
+    z_dim = args["z_dim"] if args["z_mode"] != "none" else 0
+    text_dim = 512 if args.get("text_embeddings") else 0
+    if args.get("arch") == "perceiver":
+        net = PerceiverDensityFlowNet(branch=args.get("branch", 2), n_blocks=args.get("n_blocks", 2),
+                                      dim=args.get("dim", 256), z_dim=z_dim, text_dim=text_dim)
+    else:
+        net = FiLMDensityFlowNet(z_dim=z_dim, text_dim=text_dim)
     net.load_state_dict(ckpt["net"])
     net.to(device).eval()
     z_gen = None
@@ -84,13 +89,15 @@ def main():
         total_evaluated = 0
         for g in range(args.n_gen):
             cfg = SchedulerConfig(
-                max_depth=args.depth, n_points=args.n_points,
-                score_mode="entropy",
+                max_depth=train_args.get("depth", args.depth), branch=train_args.get("branch", 2),
+                n_points=args.n_points, score_mode="entropy",
+                domain=(-1.0, 1.0),
             )
             sched = AdaptiveDensityScheduler(net, cfg)
             if rho < 1.0:
                 if k_full == 0:
-                    probe_cfg = SchedulerConfig(max_depth=args.depth, n_points=args.n_points)
+                    probe_cfg = SchedulerConfig(max_depth=cfg.max_depth, branch=cfg.branch,
+                                                n_points=args.n_points, domain=(-1.0, 1.0))
                     _, probe_stats = AdaptiveDensityScheduler(net, probe_cfg).generate(device)
                     k_full = max(probe_stats.evaluated, 1)
                 cfg.budget = max(1, int(round(rho * k_full)))

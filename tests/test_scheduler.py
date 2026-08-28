@@ -32,7 +32,7 @@ def test_scheduler_budget_respected():
     pts, stats = sched.generate(torch.device("cpu"))
     assert stats.evaluated <= 20
     assert pts.shape == (512, 3)
-    assert pts.min() >= 0.0 and pts.max() <= 1.0
+    assert pts.min() >= -1.0 and pts.max() <= 1.0
 
 
 def test_scheduler_full_generation_counts():

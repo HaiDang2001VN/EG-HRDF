@@ -1,14 +1,12 @@
 """Simplex-space rectified density flow: training objective and helpers."""
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 
-UNIFORM_P0 = 1.0 / 8.0
 
-
-def uniform_p0(batch: int, device: torch.device) -> torch.Tensor:
-    return torch.full((batch, 8), UNIFORM_P0, device=device, dtype=torch.float32)
+def uniform_p0(shape, device, dtype=torch.float32) -> torch.Tensor:
+    n = shape[-1]
+    return torch.full(shape, 1.0 / n, device=device, dtype=dtype)
 
 
 class SimplexDensityFlowMatcher:
@@ -19,7 +17,7 @@ class SimplexDensityFlowMatcher:
         self.eps = eps
 
     def interpolate(self, p1: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
-        p0 = uniform_p0(p1.shape[0], p1.device)
+        p0 = uniform_p0(p1.shape, p1.device, p1.dtype)
         t = t[:, None]
         return (1.0 - t) * p0 + t * p1
 
@@ -54,5 +52,5 @@ class SimplexDensityFlowMatcher:
     @staticmethod
     def velocity(logits: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         p1_hat = F.softmax(logits, dim=-1)
-        p0 = uniform_p0(p1_hat.shape[0], p1_hat.device)
+        p0 = uniform_p0(p1_hat.shape, p1_hat.device, p1_hat.dtype)
         return p1_hat - p0

@@ -1,50 +1,54 @@
 import threading
-from typing import Iterator, List, Optional, Tuple
+from typing import List, Optional
 
 import numpy as np
 import torch
 
 from ..data.shapenet_sdf_stream import ShapeNetSDFObjectStream
-from ..octree import build_flat_hierarchy, encode_coords
+from ..octree import build_flat_hierarchy
 from ..octree.builder import FlatOctree
+from ..octree.coordinates import encode_coords, octant_offsets
 
 
 class _TreeEntry:
-    __slots__ = ("model_id", "category", "tree", "level_index", "leaf_index", "leaf_mass", "n_points")
+    __slots__ = ("model_id", "category", "tree", "level_index", "leaf_index", "leaf_mass", "n_points", "branch")
 
     def __init__(self, model_id: str, category: str, tree: FlatOctree):
         self.model_id = model_id
         self.category = category
         self.tree = tree
+        self.branch = tree.branch
         self.n_points = tree.n_points
         self.level_index = {}
         for depth, level in tree.levels.items():
             self.level_index[depth] = {
-                int(k): i for i, k in enumerate(encode_coords(level.coords, depth))
+                int(k): i for i, k in enumerate(encode_coords(level.coords, depth, self.branch))
             }
         leaf_depth = tree.max_depth
         self.leaf_index = {int(k): i for i, k in enumerate(
-            encode_coords(tree.leaf_coords, leaf_depth))}
+            encode_coords(tree.leaf_coords, leaf_depth, self.branch))}
         self.leaf_mass = tree.leaf_counts.astype(np.float64) / tree.n_points
 
     def node_mass(self, depth: int, cell: np.ndarray) -> Optional[float]:
         if depth >= self.tree.max_depth:
-            i = self.leaf_index.get(int(encode_coords(np.asarray(cell)[None], depth)[0]))
+            i = self.leaf_index.get(int(encode_coords(np.asarray(cell)[None], depth, self.branch)[0]))
             return None if i is None else float(self.leaf_mass[i])
         idx = self.level_index.get(depth)
         if idx is None:
             return None
-        i = idx.get(int(encode_coords(np.asarray(cell)[None], depth)[0]))
+        i = idx.get(int(encode_coords(np.asarray(cell)[None], depth, self.branch)[0]))
         return None if i is None else float(self.tree.levels[depth].mass[i])
 
 
 class TripleReservoir:
     """Bounded reservoir of recently streamed objects, converted to flat trees."""
 
-    def __init__(self, stream: ShapeNetSDFObjectStream, size: int = 8, depth: int = 6, seed: int = 0):
+    def __init__(self, stream: ShapeNetSDFObjectStream, size: int = 8, depth: int = 6,
+                 branch: int = 2, seed: int = 0):
         self.stream = stream
         self.size = size
         self.depth = depth
+        self.branch = branch
         self.rng = np.random.default_rng(seed)
         self.entries: List[_TreeEntry] = []
         self._seen = 0
@@ -56,7 +60,7 @@ class TripleReservoir:
         for record in iter(self.stream):
             if self._stop.is_set():
                 break
-            tree = build_flat_hierarchy(record["points"], max_depth=self.depth)
+            tree = build_flat_hierarchy(record["points"], max_depth=self.depth, branch=self.branch)
             entry = _TreeEntry(record["model_id"], record["category"], tree)
             with self._lock:
                 self._seen += 1
@@ -88,16 +92,20 @@ class TripleReservoir:
 
 
 class TripleBatcher:
-    """Samples (parent, 8 children, grandchild masses) triples from a reservoir."""
+    """Samples (parent, b^3 children, grandchild masses) triples from a reservoir."""
 
     def __init__(self, reservoir: TripleReservoir, min_depth: int = 0, seed: int = 0):
         self.reservoir = reservoir
+        self.branch = reservoir.branch
         self.min_depth = min_depth
+        self.n_children = self.branch ** 3
+        self._offsets = octant_offsets(self.branch)
         self.rng = np.random.default_rng(seed)
 
     def sample_triple(self) -> dict:
         entry = self.reservoir.sample_entry()
         tree = entry.tree
+        b = self.branch
         max_parent_depth = tree.max_depth - 2
         d = int(self.rng.integers(self.min_depth, max_parent_depth + 1))
         level = tree.levels[d]
@@ -106,35 +114,33 @@ class TripleBatcher:
         parent_mass = float(level.mass[pi])
         parent_p1 = level.occupancy[pi]
 
-        child_cells = 2 * parent_cell[None, :] + np.array(
-            [[o & 1, (o >> 1) & 1, (o >> 2) & 1] for o in range(8)]
-        )
+        child_cells = b * parent_cell[None, :] + self._offsets
         child_depth = d + 1
-        child_p1 = np.zeros((8, 8), dtype=np.float64)
-        child_mass = np.zeros(8, dtype=np.float64)
-        grandchild_mass = np.zeros((8, 8), dtype=np.float64)
-        child_centers = np.zeros((8, 3), dtype=np.float64)
-        for o in range(8):
+        child_p1 = np.zeros((self.n_children, self.n_children), dtype=np.float64)
+        child_mass = np.zeros(self.n_children, dtype=np.float64)
+        grandchild_mass = np.zeros((self.n_children, self.n_children), dtype=np.float64)
+        child_centers = np.zeros((self.n_children, 3), dtype=np.float64)
+        for o in range(self.n_children):
             cc = child_cells[o]
             m = entry.node_mass(child_depth, cc)
             if m is None:
                 continue
             child_mass[o] = m
             if child_depth < tree.max_depth:
-                ci = entry.level_index[child_depth].get(int(encode_coords(cc[None], child_depth)[0]))
+                ci = entry.level_index[child_depth].get(int(encode_coords(cc[None], child_depth, b)[0]))
                 if ci is not None:
                     cl = tree.levels[child_depth]
                     child_p1[o] = cl.occupancy[ci]
                     child_centers[o] = cl.centers[ci]
             else:
-                child_centers[o] = (cc + 0.5) / (2 ** child_depth) * 2 - 1
-            for oo in range(8):
-                gc = 2 * cc + np.array([oo & 1, (oo >> 1) & 1, (oo >> 2) & 1])
-                gm = entry.node_mass(child_depth + 1, gc)
+                child_centers[o] = (cc + 0.5) / (b ** child_depth) * 2 - 1
+            gc_cells = b * cc[None, :] + self._offsets
+            for oo in range(self.n_children):
+                gm = entry.node_mass(child_depth + 1, gc_cells[oo])
                 if gm is not None:
                     grandchild_mass[o, oo] = gm
 
-        parent_center = (parent_cell + 0.5) / (2 ** d) * 2 - 1
+        parent_center = (parent_cell + 0.5) / (b ** d) * 2 - 1
         parent_depth_frac = d / max(tree.max_depth, 1)
         child_depth_frac = child_depth / max(tree.max_depth, 1)
         return {
@@ -145,7 +151,7 @@ class TripleBatcher:
             "child_p1": child_p1,
             "child_mass": child_mass,
             "child_e": np.concatenate(
-                [child_centers, np.full((8, 1), child_depth_frac), child_mass[:, None]], axis=1
+                [child_centers, np.full((self.n_children, 1), child_depth_frac), child_mass[:, None]], axis=1
             ),
             "grandchild_mass": grandchild_mass,
         }

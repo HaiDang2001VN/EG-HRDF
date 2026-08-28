@@ -1,7 +1,7 @@
 """EG-HRDF: Entropy-Guided Hierarchical Rectified Density Flow."""
 
 from .octree import Octree, build_octree, normalize_points, denormalize_points, normalized_entropy
-from .network import FiLMDensityFlowNet
+from .network import FiLMDensityFlowNet, PerceiverDensityFlowNet
 from .flow import SimplexDensityFlowMatcher, uniform_p0
 from .scheduler import AdaptiveDensityScheduler, SchedulerConfig, GenerationStats
 from .hier_latent import HierarchicalLatentGenerator
@@ -16,6 +16,7 @@ __all__ = [
     "denormalize_points",
     "normalized_entropy",
     "FiLMDensityFlowNet",
+    "PerceiverDensityFlowNet",
     "SimplexDensityFlowMatcher",
     "uniform_p0",
     "AdaptiveDensityScheduler",

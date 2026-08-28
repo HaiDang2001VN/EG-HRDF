@@ -25,6 +25,8 @@ def _sphere_pc(n=2048, seed=0):
 
 
 class _FakeReservoir:
+    branch = 2
+
     def __init__(self, seed=0):
         pc = _sphere_pc(seed=seed)
         from eg_hrdf.training.triple_dataset import _TreeEntry

@@ -39,10 +39,10 @@ def density_and_hierarchy_loss(
     gamma=0.5,
     lambda_hier=0.1,
 ):
-    B = parent_logits.shape[0]
-    logits = torch.cat([parent_logits, children_logits.reshape(B * 8, 8)], dim=0)
-    p1 = torch.cat([parent_p1, children_p1.reshape(B * 8, 8)], dim=0)
-    mass = torch.cat([parent_mass, children_mass.reshape(B * 8)], dim=0)
+    B, n = children_logits.shape[0], children_logits.shape[-1]
+    logits = torch.cat([parent_logits, children_logits.reshape(B * n, n)], dim=0)
+    p1 = torch.cat([parent_p1, children_p1.reshape(B * n, n)], dim=0)
+    mass = torch.cat([parent_mass, children_mass.reshape(B * n)], dim=0)
     l_density = weighted_endpoint_loss(logits, p1, mass, gamma=gamma)
     l_hier = hierarchical_consistency_loss(parent_logits, children_logits, grandchild_mass)
     return l_density + lambda_hier * l_hier, l_density.detach(), l_hier.detach()

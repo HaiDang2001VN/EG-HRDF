@@ -1,14 +1,15 @@
 from dataclasses import dataclass
-from typing import Dict, List
+from typing import Dict
 
 import numpy as np
 
-from .coordinates import encode_coords
+from .coordinates import cell_center, decode_coords, encode_coords, n_children, octant_of, quantize_points
 
 
 @dataclass
 class DepthLevel:
     depth: int
+    branch: int
     coords: np.ndarray
     counts: np.ndarray
     mass: np.ndarray
@@ -23,6 +24,7 @@ class DepthLevel:
 class FlatOctree:
     n_points: int
     max_depth: int
+    branch: int
     levels: Dict[int, DepthLevel]
     leaf_coords: np.ndarray
     leaf_counts: np.ndarray
@@ -41,62 +43,58 @@ class FlatOctree:
 
 
 def _entropy(p: np.ndarray, eps: float = 1e-12) -> np.ndarray:
-    return -(p * np.log(p + eps)).sum(axis=-1) / np.log(8.0)
+    return -(p * np.log(p + eps)).sum(axis=-1) / np.log(p.shape[-1])
 
 
 def build_flat_hierarchy(
     points: np.ndarray,
-    max_depth: int = 6,
+    max_depth: int,
+    branch: int = 2,
     lo: float = -1.0,
     hi: float = 1.0,
     child_occ_tol: float = 0.0,
 ) -> FlatOctree:
-    from .coordinates import cell_center, quantize_points
-
     n_points = len(points)
     assert n_points > 0
-    leaf_q = quantize_points(points, max_depth, lo, hi)
-    leaf_keys = encode_coords(leaf_q, max_depth)
+    n_child = n_children(branch)
+
+    leaf_q = quantize_points(points, max_depth, branch, lo, hi)
+    leaf_keys = encode_coords(leaf_q, max_depth, branch)
     leaf_keys.sort()
     uniq_keys, leaf_counts = np.unique(leaf_keys, return_counts=True)
-    leaf_coords = _decode(uniq_keys, max_depth)
+    leaf_coords = decode_coords(uniq_keys, max_depth, branch)
 
     levels: Dict[int, DepthLevel] = {}
     child_keys = uniq_keys
     child_counts = leaf_counts.astype(np.float64)
 
     for depth in range(max_depth - 1, -1, -1):
-        scale = 2 ** depth
-        child_coords = _decode(child_keys, depth + 1)
-        parent_coords = child_coords >> 1
-        parent_keys = encode_coords(parent_coords, depth)
+        child_coords = decode_coords(child_keys, depth + 1, branch)
+        parent_coords = child_coords // branch
+        parent_keys = encode_coords(parent_coords, depth, branch)
         uniq_parent, inverse = np.unique(parent_keys, return_inverse=True)
         n_parents = len(uniq_parent)
         parent_counts = np.zeros(n_parents, dtype=np.int64)
         np.add.at(parent_counts, inverse, child_counts.astype(np.int64))
 
-        occupancy = np.zeros((n_parents, 8), dtype=np.float64)
+        occupancy = np.zeros((n_parents, n_child), dtype=np.float64)
         parent_index = np.searchsorted(uniq_parent, parent_keys)
-        octants = (
-            (child_coords[:, 0] & 1)
-            | ((child_coords[:, 1] & 1) << 1)
-            | ((child_coords[:, 2] & 1) << 2)
-        )
+        octants = octant_of(child_coords, parent_coords, branch)
         np.add.at(occupancy, (parent_index, octants), child_counts)
         occupancy /= parent_counts[:, None]
 
         mass = parent_counts / n_points
-        centers = cell_center(_decode(uniq_parent, depth), depth, lo, hi)
         levels[depth] = DepthLevel(
             depth=depth,
-            coords=_decode(uniq_parent, depth),
+            branch=branch,
+            coords=decode_coords(uniq_parent, depth, branch),
             counts=parent_counts,
             mass=mass,
             occupancy=occupancy,
             entropy=_entropy(occupancy),
-            occupancy_var=((occupancy - 0.125) ** 2).sum(axis=1),
+            occupancy_var=((occupancy - 1.0 / n_child) ** 2).sum(axis=1),
             child_mask=(occupancy > child_occ_tol).astype(np.uint8),
-            centers=centers,
+            centers=cell_center(decode_coords(uniq_parent, depth, branch), depth, branch, lo, hi),
         )
         child_keys = uniq_parent
         child_counts = parent_counts.astype(np.float64)
@@ -104,19 +102,14 @@ def build_flat_hierarchy(
     return FlatOctree(
         n_points=n_points,
         max_depth=max_depth,
+        branch=branch,
         levels=levels,
         leaf_coords=leaf_coords,
         leaf_counts=leaf_counts,
     )
 
 
-def _decode(keys: np.ndarray, depth: int) -> np.ndarray:
-    from .coordinates import decode_coords
-
-    return decode_coords(np.asarray(keys, dtype=np.int64), depth)
-
-
-def occupancy_to_records(level: DepthLevel) -> List[dict]:
+def occupancy_to_records(level: DepthLevel):
     records = []
     for i in range(len(level.coords)):
         records.append(
@@ -131,3 +124,17 @@ def occupancy_to_records(level: DepthLevel) -> List[dict]:
             }
         )
     return records
+
+
+def level_to_arrays(level: DepthLevel) -> dict:
+    return {
+        "depth": level.depth,
+        "coords": level.coords,
+        "counts": level.counts,
+        "mass": level.mass,
+        "occupancy": level.occupancy,
+        "entropy": level.entropy,
+        "occupancy_var": level.occupancy_var,
+        "child_mask": level.child_mask,
+        "centers": level.centers,
+    }
