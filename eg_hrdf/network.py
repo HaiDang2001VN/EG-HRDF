@@ -26,17 +26,20 @@ class FiLMDensityFlowNet(nn.Module):
         embed_dim: int = 32,
         ctx_dim: int = 0,
         z_dim: int = 0,
+        text_dim: int = 0,
     ):
         super().__init__()
         self.time_dim = time_dim
         self.embed_dim = embed_dim
         self.ctx_dim = ctx_dim
         self.z_dim = z_dim
+        self.text_dim = text_dim
 
-        cond_dim = time_dim + embed_dim + ctx_dim + z_dim
+        cond_dim = time_dim + embed_dim + ctx_dim + z_dim + (32 if text_dim > 0 else 0)
         self.t_mlp = nn.Sequential(nn.Linear(time_dim, time_dim), nn.SiLU(), nn.Linear(time_dim, time_dim))
         self.e_mlp = nn.Sequential(nn.Linear(5, embed_dim), nn.SiLU(), nn.Linear(embed_dim, embed_dim))
         self.z_mlp = nn.Sequential(nn.Linear(z_dim, z_dim), nn.SiLU()) if z_dim > 0 else None
+        self.text_mlp = nn.Sequential(nn.Linear(text_dim, 32), nn.SiLU()) if text_dim > 0 else None
 
         dims = [8] + [h for h in hidden_dims]
         self.layers = nn.ModuleList()
@@ -57,12 +60,15 @@ class FiLMDensityFlowNet(nn.Module):
         e_B: torch.Tensor,
         ctx: torch.Tensor = None,
         z: torch.Tensor = None,
+        text: torch.Tensor = None,
     ) -> torch.Tensor:
         cond_parts = [self.t_mlp(timestep_embedding(t, self.time_dim)), self.e_mlp(e_B)]
         if self.ctx_dim > 0:
             cond_parts.append(ctx if ctx is not None else torch.zeros(p_t.shape[0], self.ctx_dim, device=p_t.device))
         if self.z_dim > 0 and self.z_mlp is not None:
             cond_parts.append(self.z_mlp(z) if z is not None else torch.zeros(p_t.shape[0], self.z_dim, device=p_t.device))
+        if self.text_dim > 0 and self.text_mlp is not None:
+            cond_parts.append(self.text_mlp(text) if text is not None else torch.zeros(p_t.shape[0], 32, device=p_t.device))
         cond = torch.cat(cond_parts, dim=-1)
 
         h = p_t

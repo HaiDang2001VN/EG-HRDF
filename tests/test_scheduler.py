@@ -27,7 +27,7 @@ def _sphere_pc(n=2048, seed=0):
 def test_scheduler_budget_respected():
     torch.manual_seed(0)
     net = FiLMDensityFlowNet(z_dim=0)
-    cfg = SchedulerConfig(max_depth=5, budget=20, n_points=512, tau_empty=1e-3)
+    cfg = SchedulerConfig(max_depth=5, budget=20, n_points=512, tau_mass=1e-3)
     sched = AdaptiveDensityScheduler(net, cfg)
     pts, stats = sched.generate(torch.device("cpu"))
     assert stats.evaluated <= 20
@@ -38,7 +38,7 @@ def test_scheduler_budget_respected():
 def test_scheduler_full_generation_counts():
     torch.manual_seed(1)
     net = FiLMDensityFlowNet(z_dim=0)
-    cfg = SchedulerConfig(max_depth=4, budget=None, n_points=256, tau_empty=1e-3)
+    cfg = SchedulerConfig(max_depth=4, budget=None, n_points=256, tau_mass=1e-3)
     sched = AdaptiveDensityScheduler(net, cfg)
     pts, stats = sched.generate(torch.device("cpu"))
     assert stats.leaves == stats.evaluated + 0 or stats.leaves >= 1

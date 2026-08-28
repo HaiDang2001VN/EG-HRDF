@@ -19,18 +19,16 @@ class SchedulerConfig:
     max_depth: int = 6
     budget: Optional[int] = None
     score_mode: str = "entropy"
-    tau_empty: float = 1e-3
-    tau_stop: float = 0.0
-    delta_entropy: float = 0.05
+    tau_mass: float = 1e-3
+    tau_refine: float = 0.0
     n_points: int = 2048
-    macro_voxel: bool = True
+    point_source: str = "uniform"
 
 
 @dataclass
 class GenerationStats:
     evaluated: int = 0
     leaves: int = 0
-    macro_voxels: int = 0
     pruned: int = 0
     subdivided: int = 0
     rho: Optional[float] = None
@@ -44,10 +42,10 @@ class AdaptiveDensityScheduler:
 
     def _node_embedding(self, cell: np.ndarray, depth: int, mass: float) -> torch.Tensor:
         d = 2 ** depth
-        centroid = (cell + 0.5) / d
+        center = (cell + 0.5) / d * 2 - 1
         depth_frac = depth / max(self.cfg.max_depth, 1)
         return torch.tensor(
-            np.concatenate([centroid, [depth_frac, mass]]), dtype=torch.float32
+            np.concatenate([center, [depth_frac, mass]]), dtype=torch.float32
         ).unsqueeze(0)
 
     @torch.no_grad()
@@ -60,9 +58,9 @@ class AdaptiveDensityScheduler:
         z: Optional[torch.Tensor] = None,
         ctx: Optional[torch.Tensor] = None,
     ) -> Tuple[np.ndarray, float]:
+        e = self._node_embedding(cell, depth, mass).to(device)
         p_t = torch.full((1, 8), UNIFORM_P0, device=device, dtype=torch.float32)
         t = torch.zeros(1, device=device)
-        e = self._node_embedding(cell, depth, mass).to(device)
         logits = self.net(p_t, t, e, ctx=ctx, z=z)
         p1 = F.softmax(logits, dim=-1)[0].cpu().numpy()
         p = np.clip(p1, 1e-12, 1.0)
@@ -94,12 +92,12 @@ class AdaptiveDensityScheduler:
 
         leaves = []
         evaluated = 0
-        macro_voxels = pruned = subdivided = 0
+        pruned = subdivided = 0
 
         while heap:
             neg_score, _, depth, cell, mass, p1, h, z = heapq.heappop(heap)
             score = -neg_score
-            if mass < cfg.tau_empty:
+            if mass < cfg.tau_mass:
                 pruned += 1
                 continue
             if evaluated >= (cfg.budget or float("inf")):
@@ -107,10 +105,7 @@ class AdaptiveDensityScheduler:
                 continue
             evaluated += 1
 
-            is_macro = cfg.macro_voxel and h >= 1.0 - cfg.delta_entropy
-            if depth >= cfg.max_depth or is_macro or score < cfg.tau_stop:
-                if is_macro:
-                    macro_voxels += 1
+            if depth >= cfg.max_depth or score < cfg.tau_refine:
                 leaves.append((cell, depth, mass))
                 continue
 
@@ -129,7 +124,7 @@ class AdaptiveDensityScheduler:
                 p_c, h_c = self.evaluate_block(child_cell, depth + 1, child_mass, device, z=z_child, ctx=ctx_child)
                 heapq.heappush(heap, (-self._score(h_c, child_mass), next(counter), depth + 1, child_cell, child_mass, p_c, h_c, z_child))
 
-        stats = GenerationStats(evaluated=evaluated, leaves=len(leaves), macro_voxels=macro_voxels, pruned=pruned, subdivided=subdivided)
+        stats = GenerationStats(evaluated=evaluated, leaves=len(leaves), pruned=pruned, subdivided=subdivided)
         if k_full is not None and k_full > 0:
             stats.rho = evaluated / k_full
 

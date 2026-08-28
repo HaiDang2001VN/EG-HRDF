@@ -105,6 +105,7 @@ class ShapeNetSDFObjectStream:
         self._queue: "queue.Queue[Optional[dict]]" = queue.Queue(maxsize=prefetch)
         self._thread: Optional[threading.Thread] = None
         self._started = False
+        self._stopped = False
         self.failures: List[Tuple[str, str, int]] = []
 
     def _open_shard(self, url: str):
@@ -162,17 +163,27 @@ class ShapeNetSDFObjectStream:
         count = 0
         try:
             for cat, path in self._shards:
-                if self.max_objects and count >= self.max_objects:
+                if self._stopped or (self.max_objects and count >= self.max_objects):
                     break
                 for record in self._decode_row_groups(cat, path):
-                    if self.max_objects and count >= self.max_objects:
+                    if self._stopped or (self.max_objects and count >= self.max_objects):
                         break
-                    self._queue.put(record)
+                    while not self._stopped:
+                        try:
+                            self._queue.put(record, timeout=0.5)
+                            break
+                        except queue.Full:
+                            continue
+                    if self._stopped:
+                        break
                     count += 1
         except Exception as exc:
             logger.exception("stream worker crashed: %r", exc)
         finally:
-            self._queue.put(None)
+            try:
+                self._queue.put_nowait(None)
+            except queue.Full:
+                pass
 
     def __iter__(self) -> Iterator[dict]:
         if not self._started:
@@ -194,9 +205,6 @@ class ShapeNetSDFObjectStream:
         self.close()
 
     def close(self):
-        while True:
-            try:
-                self._queue.get_nowait()
-            except queue.Empty:
-                break
-        self._queue.put(None)
+        self._stopped = True
+        if self._thread is not None and self._thread.is_alive():
+            self._thread.join(timeout=10)

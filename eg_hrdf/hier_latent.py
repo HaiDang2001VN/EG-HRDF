@@ -5,9 +5,11 @@ import torch.nn as nn
 
 
 class HierarchicalLatentGenerator(nn.Module):
-    def __init__(self, z_dim: int = 16, embed_dim: int = 32):
+    def __init__(self, z_dim: int = 16, embed_dim: int = 32, e_dim: int = 5):
         super().__init__()
         self.z_dim = z_dim
+        self.embed_dim = embed_dim
+        self.e_proj = nn.Linear(e_dim, embed_dim)
         self.g = nn.Sequential(
             nn.Linear(2 * z_dim + embed_dim, z_dim),
             nn.SiLU(),
@@ -19,6 +21,5 @@ class HierarchicalLatentGenerator(nn.Module):
 
     def expand(self, z_parent: torch.Tensor, e_child: torch.Tensor) -> torch.Tensor:
         eps = torch.randn(z_parent.shape[0], self.z_dim, device=z_parent.device)
-        if e_child.shape[-1] != self.g[0].in_features - 2 * self.z_dim:
-            e_child = e_child[..., : self.g[0].in_features - 2 * self.z_dim]
-        return torch.tanh(self.g(torch.cat([z_parent, eps, e_child], dim=-1)))
+        e = self.e_proj(e_child.to(z_parent.device, z_parent.dtype))
+        return torch.tanh(self.g(torch.cat([z_parent, eps, e], dim=-1)))
