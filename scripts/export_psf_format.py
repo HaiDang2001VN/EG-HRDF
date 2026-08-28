@@ -16,6 +16,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from eg_hrdf.data import ShapeNetSDFObjectStream, StreamMode
+from datasets.shapenet_data_pc import cate_to_synsetid
 
 
 def main():
@@ -35,7 +36,8 @@ def main():
             mode=StreamMode.ALL if args.mode == "all" else StreamMode.CATEGORY,
             n_points=args.n_points, max_objects=args.max_objects, seed=args.seed,
         )
-        out_dir = os.path.join(args.out, args.config, split)
+        synset = cate_to_synsetid[args.config]
+        out_dir = os.path.join(args.out, synset, split)
         os.makedirs(out_dir, exist_ok=True)
         n = 0
         for rec in iter(stream):

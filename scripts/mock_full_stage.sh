@@ -110,7 +110,7 @@ rm -rf /tmp/psf_mock ~/psf_mock_root
   --out /tmp/psf_mock --max-objects 5 > output/mock/m8_export.log 2>&1 \
   && check M8a_export 0 || check M8a_export 1
 mkdir -p ~/psf_mock_root/ShapeNetCore.v2.PC15k
-ln -sfn /tmp/psf_mock/chair ~/psf_mock_root/ShapeNetCore.v2.PC15k/chair
+ln -sfn /tmp/psf_mock/03001627 ~/psf_mock_root/ShapeNetCore.v2.PC15k/03001627
 .venv/bin/python -u train_flow.py --category chair --bs 2 --niter 2 --workers 0 --saveIter 1 \
   --distribution_type single --dataroot ~/psf_mock_root/ShapeNetCore.v2.PC15k/ \
   > output/mock/m8_train.log 2>&1 \

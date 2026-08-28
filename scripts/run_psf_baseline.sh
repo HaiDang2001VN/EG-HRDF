@@ -6,11 +6,11 @@ cd ~/code/EG-HRDF
 export CUDA_HOME=$HOME/cuda-12.1 PATH=$HOME/cuda-12.1/bin:$PATH
 export TORCH_CUDA_ARCH_LIST="8.6" PYTORCH_NVCC=$HOME/nvcc-wrapper
 
-# PSF train_flow expects ./ShapeNetCore.v2.PC15k/<category>/<split>/<id>.npy
+# PSF train_flow expects ./ShapeNetCore.v2.PC15k/<synset>/<split>/<id>.npy
 mkdir -p ShapeNetCore.v2.PC15k
-ln -sfn ~/code/EG-HRDF/data/psf_export/chair ShapeNetCore.v2.PC15k/chair
+ln -sfn ~/code/EG-HRDF/data/psf_export/03001627 ShapeNetCore.v2.PC15k/03001627
 
-.venv/bin/python -u train_flow.py --category chair --bs 32 --niter 2000 \
+.venv/bin/python -u train_flow.py --category chair --bs 48 --niter 500 \
   --distribution_type single --workers 4 --dataroot ./ShapeNetCore.v2.PC15k/ \
   > output/psf_train_flow.log 2>&1
 echo PSF_FLOW_DONE
