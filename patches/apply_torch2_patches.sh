@@ -10,6 +10,9 @@ if [ -f "$emd" ]; then
   sed -i.bak 's/THCudaCheck(/AT_CUDA_CHECK(/g' "$emd"
   sed -i.bak 's/\.data</.data_ptr</g' "$emd"
   sed -i.bak 's/x\.type()\.is_cuda()/x.is_cuda()/' "$emd"
+  if ! grep -q "define CHECK_EQ" "$emd"; then
+    sed -i.bak 's|#define CHECK_INPUT(x)|#define CHECK_EQ(a, b) TORCH_CHECK((a) == (b), #a " must equal " #b)\n#define CHECK_INPUT(x)|' "$emd"
+  fi
   rm -f "$emd.bak"
   echo "patched: metrics/PyTorchEMD/cuda/emd_kernel.cu"
 fi
