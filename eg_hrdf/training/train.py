@@ -189,9 +189,10 @@ def main():
                 rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
             except Exception:
                 pass
+            gpu_mem = torch.cuda.max_memory_allocated() / 1e9 if torch.cuda.is_available() else 0.0
             print(f"step {step:>6} loss {np.mean(running[-args.log_every:]):.4f} "
                   f"({(time.time() - t0) / step:.2f}s/step, obj streamed {reservoir.seen}, "
-                  f"RSS {rss:.0f} MB)")
+                  f"RSS {rss:.0f} MB, GPU {gpu_mem:.2f} GB)")
             torch.save({"net": net.state_dict(), "z_gen": z_gen.state_dict() if z_gen else None,
                         "hash_ctx": hash_ctx.state_dict() if hash_ctx else None,
                         "args": vars(args)},
