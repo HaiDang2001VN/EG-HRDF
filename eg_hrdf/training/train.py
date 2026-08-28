@@ -40,8 +40,10 @@ def build_z(args, B, device, z_gen):
     return z_gen.root(B, device), None
 
 
-def interpolate_simplex(p1: torch.Tensor, device: torch.device) -> tuple:
+def interpolate_simplex(p1: torch.Tensor, device: torch.device, flow_mode: str = "simplex") -> tuple:
     B = p1.shape[0]
+    if flow_mode == "direct":
+        return p1, torch.ones(B, device=device, dtype=torch.float32)
     t = torch.rand(B, device=device, dtype=torch.float32)[:, None]
     p0 = torch.full_like(p1, 1.0 / p1.shape[-1])
     p_t = (1.0 - t) * p0 + t * p1
@@ -66,6 +68,7 @@ def main():
     parser.add_argument("--lr", type=float, default=2e-4)
     parser.add_argument("--gamma", type=float, default=0.5)
     parser.add_argument("--lambda-hier", type=float, default=0.1)
+    parser.add_argument("--flow-mode", choices=["simplex", "direct"], default="simplex")
     parser.add_argument("--z-mode", choices=["none", "independent", "hier"], default="hier")
     parser.add_argument("--z-dim", type=int, default=32)
     parser.add_argument("--text-embeddings", default="", help="dir with caption_embeddings.npy + caption_ids.json")
@@ -141,8 +144,8 @@ def main():
                 z_c = z_gen.expand(z_p.repeat_interleave(n_children, dim=0),
                                    batch["child_e"].reshape(B * n_children, -1))
 
-            p_t_p, t_p = interpolate_simplex(batch["parent_p1"], device)
-            p_t_c, t_c = interpolate_simplex(batch["child_p1"].reshape(B * n_children, n_children), device)
+            p_t_p, t_p = interpolate_simplex(batch["parent_p1"], device, args.flow_mode)
+            p_t_c, t_c = interpolate_simplex(batch["child_p1"].reshape(B * n_children, n_children), device, args.flow_mode)
             parent_logits = net(p_t_p, t_p, batch["parent_e"], z=z_p, text=text)
             children_logits = net(p_t_c, t_c, batch["child_e"].reshape(B * n_children, -1),
                                   z=z_c,
