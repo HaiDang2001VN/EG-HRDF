@@ -3,6 +3,8 @@
 # full-scale run. Run on bm87 with the hrdf venv active.
 set -uo pipefail
 cd ~/code/EG-HRDF
+export CUDA_HOME=$HOME/cuda-12.1 PATH=$HOME/cuda-12.1/bin:$PATH
+export TORCH_CUDA_ARCH_LIST="8.6" PYTORCH_NVCC=$HOME/nvcc-wrapper
 mkdir -p output/mock
 PASS=0; FAIL=0
 

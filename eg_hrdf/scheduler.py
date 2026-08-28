@@ -129,7 +129,7 @@ class AdaptiveDensityScheduler:
         for i, o in enumerate(keep):
             z_child = None
             if z_c is not None:
-                z_child = z_c[i]
+                z_child = z_c[i : i + 1]
             results.append((child_cells[i], child_masses[i], probs_c[i], float(ent[i]), z_child))
         return results
 
