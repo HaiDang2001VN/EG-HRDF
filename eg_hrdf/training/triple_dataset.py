@@ -145,6 +145,10 @@ class TripleBatcher:
         child_depth_frac = child_depth / max(tree.max_depth, 1)
         return {
             "model_id": entry.model_id,
+            "parent_depth": d,
+            "parent_cell": parent_cell,
+            "child_depth": child_depth,
+            "child_cell": child_cells,
             "parent_p1": parent_p1,
             "parent_mass": parent_mass,
             "parent_e": np.concatenate([parent_center, [parent_depth_frac, parent_mass]]),
@@ -164,6 +168,10 @@ class TripleBatcher:
 
         return {
             "model_ids": [it["model_id"] for it in items],
+            "parent_depth": torch.tensor([it["parent_depth"] for it in items], dtype=torch.long),
+            "parent_cell": torch.tensor(np.stack([it["parent_cell"] for it in items]), dtype=torch.long),
+            "child_depth": torch.tensor([it["child_depth"] for it in items], dtype=torch.long),
+            "child_cell": torch.tensor(np.stack([it["child_cell"] for it in items]), dtype=torch.long),
             "parent_p1": stack("parent_p1"),
             "parent_mass": stack("parent_mass"),
             "parent_e": stack("parent_e"),

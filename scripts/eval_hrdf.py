@@ -40,7 +40,15 @@ def load_model(ckpt_path, device):
         z_gen = HierarchicalLatentGenerator(z_dim=args["z_dim"])
         z_gen.load_state_dict(ckpt["z_gen"])
         z_gen.to(device).eval()
-    return net, z_gen, args
+    hash_ctx = None
+    if args.get("use_hash"):
+        from eg_hrdf import SpatialHashContext
+        hash_ctx = SpatialHashContext(n_levels=2, out_dim=32,
+                                      n_neighbors=args.get("hash_neighbors", 6),
+                                      branch=args.get("branch", 2))
+        hash_ctx.load_state_dict(ckpt["hash_ctx"])
+        hash_ctx.to(device).eval()
+    return net, z_gen, hash_ctx, args
 
 
 def k_full_for_category(depth: int, mean_leaves: float) -> int:
@@ -65,7 +73,12 @@ def main():
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    net, z_gen, train_args = load_model(args.ckpt, device)
+    net, z_gen, hash_ctx, train_args = load_model(args.ckpt, device)
+    ctx_fn = None
+    if hash_ctx is not None:
+        def ctx_fn(cells, depth_t):
+            return hash_ctx(torch.as_tensor(np.asarray(cells), dtype=torch.long, device=device),
+                            torch.as_tensor(depth_t, dtype=torch.long, device=device))
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
 
@@ -104,7 +117,7 @@ def main():
             z0 = z_gen.root(1, device) if z_gen is not None else None
             z_fn = (lambda zp, e: z_gen.expand(zp, e)) if z_gen is not None else None
             pts, stats = sched.generate(
-                device, z_root=z0, z_fn=z_fn,
+                device, z_root=z0, z_fn=z_fn, ctx_fn=ctx_fn,
             )
             total_evaluated += stats.evaluated
             gen_set.append(torch.tensor(pts))

@@ -64,7 +64,8 @@ def test_scheduler_with_stochastic_latents():
 def test_hash_context_forward():
     ctx = SpatialHashContext(n_levels=2, feat_dim=8, out_dim=16)
     cell = torch.randint(0, 64, (7, 3))
-    out = ctx(cell, depth=3, max_depth=6)
+    depth = torch.full((7,), 3, dtype=torch.long)
+    out = ctx(cell, depth)
     assert out.shape == (7, 16)
 
 

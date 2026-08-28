@@ -124,3 +124,32 @@ def test_streaming_step_backward():
         pl, cl, batch["parent_p1"], batch["parent_mass"],
         batch["child_p1"], batch["child_mass"], batch["grandchild_mass"])
     loss.backward()
+
+
+def test_hash_context_trainer_wiring():
+    torch.manual_seed(5)
+    from eg_hrdf import PerceiverDensityFlowNet, SpatialHashContext
+    from eg_hrdf.training import TripleBatcher
+
+    class _Res:
+        branch = 2
+
+        def __init__(self):
+            pc = _sphere_pc(seed=9)
+            from eg_hrdf.training.triple_dataset import _TreeEntry
+            self.entry = _TreeEntry("t", "chair", build_flat_hierarchy(pc, max_depth=4))
+
+        def sample_entry(self):
+            return self.entry
+
+    net = PerceiverDensityFlowNet(branch=2, ctx_dim=32)
+    hash_ctx = SpatialHashContext(n_levels=2, out_dim=32, n_neighbors=6, branch=2)
+    batcher = TripleBatcher(_Res(), seed=0)
+    batch = batcher.sample_batch(3)
+    ctx_p = hash_ctx(batch["parent_cell"], batch["parent_depth"])
+    cc = batch["child_cell"].reshape(24, 3)
+    cd = batch["child_depth"].repeat_interleave(8, dim=0)
+    ctx_c = hash_ctx(cc, cd)
+    assert ctx_p.shape == (3, 32) and ctx_c.shape == (24, 32)
+    logits = net(torch.rand(3, 8), torch.rand(3), batch["parent_e"], ctx=ctx_p)
+    assert logits.shape == (3, 8)

@@ -16,20 +16,23 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from eg_hrdf.data import ShapeNetSDFObjectStream, StreamMode
 from eg_hrdf.hier_latent import HierarchicalLatentGenerator
+from eg_hrdf.hash_context import SpatialHashContext
 from eg_hrdf.network import FiLMDensityFlowNet, PerceiverDensityFlowNet
 from eg_hrdf.training import TripleBatcher, TripleReservoir, density_and_hierarchy_loss
 
 
 def build_net(args):
-    n_children = args.branch ** 3
+    ctx_dim = 32 if args.use_hash else 0
     if args.arch == "perceiver":
         return PerceiverDensityFlowNet(
             branch=args.branch, n_blocks=args.n_blocks, dim=args.dim,
             z_dim=args.z_dim if args.z_mode != "none" else 0,
             text_dim=512 if args.text_embeddings else 0,
+            ctx_dim=ctx_dim,
         )
     return FiLMDensityFlowNet(z_dim=args.z_dim if args.z_mode != "none" else 0,
-                              text_dim=512 if args.text_embeddings else 0)
+                              text_dim=512 if args.text_embeddings else 0,
+                              ctx_dim=ctx_dim)
 
 
 def build_z(args, B, device, z_gen):
@@ -69,6 +72,8 @@ def main():
     parser.add_argument("--gamma", type=float, default=0.5)
     parser.add_argument("--lambda-hier", type=float, default=0.1)
     parser.add_argument("--flow-mode", choices=["simplex", "direct"], default="simplex")
+    parser.add_argument("--use-hash", action="store_true")
+    parser.add_argument("--hash-neighbors", type=int, default=6, choices=[6, 18, 26])
     parser.add_argument("--z-mode", choices=["none", "independent", "hier"], default="hier")
     parser.add_argument("--z-dim", type=int, default=32)
     parser.add_argument("--text-embeddings", default="", help="dir with caption_embeddings.npy + caption_ids.json")
@@ -108,7 +113,12 @@ def main():
     z_gen = HierarchicalLatentGenerator(z_dim=args.z_dim) if args.z_mode == "hier" else None
     if z_gen is not None:
         z_gen.to(device)
-    opt = torch.optim.Adam(list(net.parameters()) + (list(z_gen.parameters()) if z_gen else []), lr=args.lr)
+    hash_ctx = None
+    if args.use_hash:
+        hash_ctx = SpatialHashContext(n_levels=2, out_dim=32, n_neighbors=args.hash_neighbors,
+                                      branch=args.branch).to(device)
+    opt = torch.optim.Adam(list(net.parameters()) + (list(z_gen.parameters()) if z_gen else [])
+                           + (list(hash_ctx.parameters()) if hash_ctx else []), lr=args.lr)
 
     t0 = time.time()
     running = []
@@ -146,8 +156,16 @@ def main():
 
             p_t_p, t_p = interpolate_simplex(batch["parent_p1"], device, args.flow_mode)
             p_t_c, t_c = interpolate_simplex(batch["child_p1"].reshape(B * n_children, n_children), device, args.flow_mode)
-            parent_logits = net(p_t_p, t_p, batch["parent_e"], z=z_p, text=text)
+            ctx_p = None
+            ctx_c = None
+            if hash_ctx is not None:
+                ctx_p = hash_ctx(batch["parent_cell"], batch["parent_depth"])
+                cc = batch["child_cell"].reshape(B * n_children, 3)
+                cd = batch["child_depth"].repeat_interleave(n_children, dim=0)
+                ctx_c = hash_ctx(cc, cd)
+            parent_logits = net(p_t_p, t_p, batch["parent_e"], ctx=ctx_p, z=z_p, text=text)
             children_logits = net(p_t_c, t_c, batch["child_e"].reshape(B * n_children, -1),
+                                  ctx=ctx_c,
                                   z=z_c,
                                   text=text.repeat_interleave(n_children, dim=0) if text is not None else None,
                                   ).reshape(B, n_children, n_children)
@@ -175,6 +193,7 @@ def main():
                   f"({(time.time() - t0) / step:.2f}s/step, obj streamed {reservoir.seen}, "
                   f"RSS {rss:.0f} MB)")
             torch.save({"net": net.state_dict(), "z_gen": z_gen.state_dict() if z_gen else None,
+                        "hash_ctx": hash_ctx.state_dict() if hash_ctx else None,
                         "args": vars(args)},
                        os.path.join(args.out_dir, "hrdf_stream_latest.pth"))
 

@@ -116,8 +116,12 @@ class AdaptiveDensityScheduler:
         z_c = None
         if self.net.z_dim > 0 and z is not None and z_fn is not None:
             z_c = z_fn(z, e)
+        ctx_c = None
+        if ctx_fn is not None:
+            depth_t = torch.full((len(keep),), child_depth, dtype=torch.long)
+            ctx_c = ctx_fn(child_cells, depth_t).to(device)
 
-        logits = self.net(p_t, t, e, ctx=None, z=z_c)
+        logits = self.net(p_t, t, e, ctx=ctx_c, z=z_c)
         probs_c = F.softmax(logits, dim=-1).cpu().numpy()
         ent = -(probs_c * np.log(np.clip(probs_c, 1e-12, 1.0))).sum(axis=1) / np.log(n_children)
 
@@ -143,8 +147,10 @@ class AdaptiveDensityScheduler:
         counter = itertools.count()
         heap = []
         root_cell = np.zeros(3, dtype=np.int64)
-        p_root, h_root = self.evaluate_block(root_cell, 0, 1.0, device, z=z_root,
-                                             ctx=ctx_fn(root_cell, 0) if ctx_fn else None)
+        root_ctx = None
+        if ctx_fn is not None:
+            root_ctx = ctx_fn(root_cell[None], torch.zeros(1, dtype=torch.long)).to(device)
+        p_root, h_root = self.evaluate_block(root_cell, 0, 1.0, device, z=z_root, ctx=root_ctx)
         heapq.heappush(heap, (-self._score(h_root, 1.0), next(counter), 0, root_cell.copy(), 1.0, p_root, h_root, z_root))
 
         leaves = []
