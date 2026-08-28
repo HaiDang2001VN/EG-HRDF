@@ -1,96 +1,76 @@
 # BM87 Server Setup (EG-HRDF / PSF modernized stack)
 
-Target: single RTX 3090/4090 (24 GB, sm_86/sm_89). PSF's original pin (torch 1.4 +
-CUDA 10.1) cannot run on these GPUs, so we use torch 2.x and rebuild the three CUDA
-extensions. nvidia-smi may be unavailable on bm87 due to root restrictions; use
-`python -c "import torch; print(torch.cuda.is_available())"` instead.
+Target GPU: RTX 3070 (sm_86, 8 GB) — batch sizes for PSF/PVCNN must be scaled down
+accordingly. Environment manager: **uv** (conda is not used on this server).
 
-## 1. Conda environment
+## 0. GPU status caveat (2026-08)
 
-```bash
-conda create -n hrdf python=3.10 -y
-conda activate hrdf
-pip install torch==2.4.1 torchvision --index-url https://download.pytorch.org/whl/cu124
-pip install -r requirements.txt
-```
-
-If `torch.cuda.is_available()` is False, ask the admin which CUDA driver is exposed,
-then pick the matching wheel index (cu118/cu121/cu124).
-
-## 2. CUDA extensions
-
-Set arch flags for the local GPU before building:
+`nvidia-smi` fails with "Insufficient Permissions" and torch reports
+"No CUDA GPUs are available" because `/dev/nvidia0` is missing and
+`/usr/bin/nvidia-modprobe` (setuid root:video) is not executable by user
+`hlhdang` (not in the `video` group). An admin must fix this, e.g.:
 
 ```bash
-export TORCH_CUDA_ARCH_LIST="8.6"    # 3090/A5000; use "8.9" for 4090, "8.6;8.9" for both
+sudo nvidia-modprobe -u -c=0     # or simply reboot the machine
+sudo usermod -aG video hlhdang   # then re-login
 ```
 
-### 2.1 PVCNN backend (needed by model/pvcnn_generation.py)
+Until then everything below runs on CPU (EG-HRDF core tests do not need CUDA).
+
+## 1. Environment (uv)
 
 ```bash
-python -c "import modules.functional.backend"   # compiles _pvcnn_backend on first import
+curl -LsSf https://astral.sh/uv/install.sh | sh     # if uv not installed
+cd ~/code/EG-HRDF
+uv python install 3.10
+uv venv .venv --python 3.10
+uv pip install --python .venv/bin/python torch==2.4.1+cu121 torchvision==0.19.1+cu121 \
+    --index-url https://download.pytorch.org/whl/cu121
+uv pip install --python .venv/bin/python -r requirements.txt pytest
 ```
 
-If `torch.utils.cpp_extension.load` fails on ninja or g++, install:
-`conda install -y ninja` and ensure `g++ >= 9`.
+Driver 535.154.05 supports up to CUDA 12.2 → use cu121 wheels (cu124 will install
+but `torch.cuda.is_available()` stays False).
 
-### 2.2 PyTorchEMD (needed by metrics/evaluation_metrics.py)
+Verify:
 
 ```bash
-cd metrics/PyTorchEMD
-python setup.py install
+.venv/bin/python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
 ```
 
-The original code uses deprecated THC headers and `Tensor::data<T>()`. Apply the
-in-repo torch 2.x patch **before** building (run once from the repo root):
+## 2. CUDA extensions (only after GPU access is fixed)
+
+Needs nvcc 12.1 (`conda install -c nvidia/label/cuda-12.1.1 cuda-nvcc cuda-toolkit`
+inside a throwaway env, or the `nvidia-cuda-nvcc-cu12==12.1.105` pip package), then:
 
 ```bash
-bash patches/apply_torch2_patches.sh
-cd metrics/PyTorchEMD && python setup.py install
+export CUDA_HOME=<nvcc prefix>
+export TORCH_CUDA_ARCH_LIST="8.6"
+.venv/bin/python -c "import modules.functional.backend"   # _pvcnn_backend
+bash patches/apply_torch2_patches.sh                       # THC/.data<T> fixes
+cd metrics/PyTorchEMD && ../../.venv/bin/python setup.py install && cd -
+cd metrics/ChamferDistancePytorch/chamfer3D && ../../../.venv/bin/python setup.py install && cd -
 ```
-
-### 2.3 Chamfer3D (needed by test_flow.py / evaluation metrics)
-
-```bash
-bash patches/apply_torch2_patches.sh   # idempotent; also fixes .data<T>() here
-cd metrics/ChamferDistancePytorch/chamfer3D
-python setup.py install
-```
-
-Note: EG-HRDF core (`eg_hrdf/`, `train_hrdf.py`) needs **no** compiled extensions;
-a CPU-only box can run all `tests/`.
 
 ## 3. Data
 
-Download the PointFlow ShapeNet point clouds (ShapeNetCore.v2.PC15k) and extract:
+Download PointFlow's ShapeNetCore.v2.PC15k (see https://github.com/stevenygd/PointFlow)
+and extract into `data/` (git-ignored).
+
+## 4. Smoke tests
 
 ```bash
-mkdir -p data && cd data
-# follow https://github.com/stevenygd/PointFlow (dataset download section)
-unzip ShapeNetCore.v2.PC15k.zip
-```
-
-## 4. Smoke tests (in order)
-
-```bash
+.venv/bin/python -m pytest tests/ -q                                   # CPU, no extensions
+.venv/bin/python train_hrdf.py --synthetic --max-shapes 8 --epochs 3 --device cpu
+# after GPU fix + extension builds:
 bash scripts/server_smoke_test.sh
 ```
 
-which runs:
-
-1. `python -m pytest tests/ -q` (EG-HRDF core, CPU or GPU)
-2. `python train_hrdf.py --synthetic --max-shapes 8 --epochs 2 --blocks-per-shape 32 --depth 5 --npoints 512` (EG-HRDF core)
-3. `python -c "import modules.functional.backend"` (PVCNN CUDA backend build)
-4. `python train_flow.py --category chair --bs 8 --niter 1 --distribution_type single --workers 2` (PSF original, 1 epoch)
-
 ## 5. Git workflow
 
-Local Mac: implement + mock test in `vision` conda env, commit & push to origin
+Local Mac: implement + mock test in the `vision` conda env, commit & push to origin
 (`HaiDang2001VN/EG-HRDF`). Then on bm87:
 
 ```bash
-ssh bm87
-cd ~/code && git clone https://github.com/HaiDang2001VN/EG-HRDF.git   # first time
-cd EG-HRDF && git pull
-conda activate hrdf && bash scripts/server_smoke_test.sh
+cd ~/code/EG-HRDF && git pull
 ```

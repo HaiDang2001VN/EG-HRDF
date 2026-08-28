@@ -6,6 +6,7 @@ build/
 dist/
 output/
 data/
+.venv/
 ShapeNetCore.v2.PC15k/
 .ipynb_checkpoints/
 .DS_Store
