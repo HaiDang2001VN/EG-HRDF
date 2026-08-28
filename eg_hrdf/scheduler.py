@@ -154,6 +154,9 @@ class AdaptiveDensityScheduler:
         while heap:
             neg_score, _, depth, cell, mass, p1, h, z = heapq.heappop(heap)
             score = -neg_score
+            if depth >= cfg.max_depth:
+                leaves.append((cell, depth, mass))
+                continue
             if mass < cfg.tau_mass:
                 pruned += 1
                 continue
@@ -162,7 +165,7 @@ class AdaptiveDensityScheduler:
                 continue
             evaluated += 1
 
-            if depth >= cfg.max_depth or score < cfg.tau_refine:
+            if score < cfg.tau_refine:
                 leaves.append((cell, depth, mass))
                 continue
 
