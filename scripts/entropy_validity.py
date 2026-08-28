@@ -66,9 +66,8 @@ def main():
 
     n_seen = 0
     for rec in iter(stream):
-        sdf_pts = np.concatenate([rec["sdf_points"], rec["points"]], axis=0)
-        sdf = np.concatenate([rec["sdf"], np.zeros(len(rec["points"]))])
-        sdf_pts = sdf_pts.astype(np.float64)
+        sdf_pts = rec["sdf_points"].astype(np.float64)
+        sdf = rec["sdf"].astype(np.float64)
 
         tree = build_flat_hierarchy(rec["points"], max_depth=args.depth, branch=b)
 
