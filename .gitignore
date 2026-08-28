@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.so
+*.egg-info/
+build/
+dist/
+output/
+data/
+ShapeNetCore.v2.PC15k/
+.ipynb_checkpoints/
+.DS_Store

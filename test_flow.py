@@ -22,7 +22,6 @@ models
 '''
 
 from scipy import integrate
-import sde_lib
 def to_flattened_numpy(x):
   """Flatten a torch tensor `x` and convert it to numpy."""
   return x.detach().cpu().numpy().reshape((-1,))
@@ -49,7 +48,7 @@ def ode_sampler(model, z=None):
       device = z.device
       # Initial sample
       if z is None:
-        z0 = sde.get_z0(torch.zeros(shape, device=device), train=False).to(device)
+        z0 = torch.randn(shape, device=device)
         x = z0.detach().clone()
 
         print(x.shape, x.min(), x.max())

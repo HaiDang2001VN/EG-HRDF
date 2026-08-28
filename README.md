@@ -1,3 +1,28 @@
+# PSF → EG-HRDF
+
+This repository implements **EG-HRDF** (Entropy-Guided Hierarchical Rectified Density Flow):
+information-adaptive hierarchical point-cloud generation, built on top of the PSF
+(straight-flow point cloud generation) codebase.
+
+- `eg_hrdf/` — EG-HRDF core (pure PyTorch, no CUDA extensions required):
+  adaptive octree representation (`octree.py`), local simplex rectified density flow
+  (`flow.py`), FiLM density network (`network.py`), entropy-budgeted adaptive scheduler
+  (`scheduler.py`), hierarchical stochastic latents (`hier_latent.py`), spatial hash
+  context (`hash_context.py`), density-aware chamfer (`metrics.py`).
+- `train_hrdf.py` — Stage A/B training entry point (synthetic smoke mode: `--synthetic`).
+- `tests/` — unit tests (mass conservation, flow objective, scheduler budget, DCD).
+- `SETUP_BM87.md` — server environment guide (torch 2.x modernization for RTX 3090/4090).
+- `patches/apply_torch2_patches.sh` — torch 2.x fixes for the PSF CUDA extensions.
+
+Quick start (CPU is enough for the EG-HRDF core):
+
+```bash
+python -m pytest tests/ -q
+python train_hrdf.py --synthetic --max-shapes 12 --epochs 3 --blocks-per-shape 64
+```
+
+Everything below is the original PSF documentation.
+
 # PSF
 This is the official code of
 > **[Fast Point Cloud Generation with Straight Flows](https://arxiv.org/abs/2212.01747)** \

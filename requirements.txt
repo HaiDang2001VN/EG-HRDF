@@ -1,0 +1,13 @@
+# EG-HRDF / PSF (modernized for torch 2.x + RTX 3090/4090)
+# Install torch first from pytorch.org with the CUDA matching the server, e.g.:
+#   pip install torch==2.4.1 torchvision --index-url https://download.pytorch.org/whl/cu124
+torch>=2.1
+numpy<2.0
+scipy
+tqdm
+scikit-learn
+matplotlib
+trimesh
+open3d
+pillow
+pprintpp

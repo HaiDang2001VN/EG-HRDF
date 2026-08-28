@@ -11,7 +11,7 @@ from utils.visualize import *
 from model.pvcnn_generation import PVCNN2Base
 import torch.distributed as dist
 from datasets.shapenet_data_pc import ShapeNet15kPointClouds
-from pytorch3d.loss import chamfer_distance
+from metrics.evaluation_metrics import distChamfer as chamfer_distance_pytorch
 
 class Flowmodel:
     def __init__(self):
@@ -102,7 +102,8 @@ class Flowmodel:
         t = t.squeeze()
         data_t = inter_data
         eps_recon = denoise_fn(data_t, t)
-        losses = chamfer_distance(x1.permute(0, 2, 1), (x0 + eps_recon).permute(0, 2, 1))
+        d_xy, d_yx = chamfer_distance_pytorch(x1.permute(0, 2, 1), (x0 + eps_recon).permute(0, 2, 1))
+        losses = d_xy.mean(-1) + d_yx.mean(-1)
 
         return losses
 
