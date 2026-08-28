@@ -27,9 +27,14 @@ class ShapeNetCaptionIndex:
             filename = sorted(files)[0]
         path = hf_hub_download(CAPTION_REPO, repo_type="dataset", filename=filename, token=token)
         df = pd.read_csv(io.BytesIO(open(path, "rb").read()))
-        id_col = next(c for c in df.columns if "id" in c.lower() or "model" in c.lower())
+        id_candidates = ["model_id", "Subclass", "subclass", "model", "id"]
+        id_col = next((c for c in df.columns if c.strip() in id_candidates), None)
+        assert id_col, f"no id column found in {list(df.columns)}"
         cap_col = next(c for c in df.columns if "caption" in c.lower() or "text" in c.lower() or "desc" in c.lower())
-        caption_map = {str(mid): str(cap) for mid, cap in zip(df[id_col], df[cap_col])}
+        caption_map = {
+            str(mid).strip().strip("'\""): str(cap).strip()
+            for mid, cap in zip(df[id_col], df[cap_col])
+        }
         return cls(caption_map)
 
     def __getitem__(self, model_id: str) -> str:
