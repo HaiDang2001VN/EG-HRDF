@@ -5,7 +5,7 @@ __pycache__/
 build/
 dist/
 output/
-data/
+/data/
 .venv/
 ShapeNetCore.v2.PC15k/
 .ipynb_checkpoints/
