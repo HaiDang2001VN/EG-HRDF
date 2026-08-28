@@ -78,6 +78,58 @@ class AdaptiveDensityScheduler:
         raise ValueError(self.cfg.score_mode)
 
     @torch.no_grad()
+    def _evaluate_children_batch(
+        self,
+        parent_cell: np.ndarray,
+        depth: int,
+        mass: float,
+        p1: np.ndarray,
+        device: torch.device,
+        z: Optional[torch.Tensor],
+        ctx_fn: Optional[Callable],
+        z_fn: Optional[Callable],
+    ):
+        """Evaluate all non-empty children of a popped block in one batched forward."""
+        b = self.cfg.branch
+        n_children = self.n_children
+        child_depth = depth + 1
+        offs = self._offsets
+        probs = np.asarray(p1, dtype=np.float64)
+        keep = np.nonzero(probs > 0.0)[0]
+        if len(keep) == 0:
+            return []
+        child_cells = b * parent_cell[None, :] + offs[keep]
+        child_masses = mass * probs[keep]
+
+        d = b ** child_depth
+        centers = (child_cells + 0.5) / d * 2 - 1
+        depth_frac = child_depth / max(self.cfg.max_depth, 1)
+        e = torch.tensor(
+            np.concatenate(
+                [centers, np.full((len(keep), 1), depth_frac), child_masses[:, None]], axis=1
+            ),
+            dtype=torch.float32,
+        ).to(device)
+        p_t = torch.full((len(keep), n_children), 1.0 / n_children, device=device, dtype=torch.float32)
+        t = torch.zeros(len(keep), device=device)
+
+        z_c = None
+        if self.net.z_dim > 0 and z is not None and z_fn is not None:
+            z_c = z_fn(z, e)
+
+        logits = self.net(p_t, t, e, ctx=None, z=z_c)
+        probs_c = F.softmax(logits, dim=-1).cpu().numpy()
+        ent = -(probs_c * np.log(np.clip(probs_c, 1e-12, 1.0))).sum(axis=1) / np.log(n_children)
+
+        results = []
+        for i, o in enumerate(keep):
+            z_child = None
+            if z_c is not None:
+                z_child = z_c[i]
+            results.append((child_cells[i], child_masses[i], probs_c[i], float(ent[i]), z_child))
+        return results
+
+    @torch.no_grad()
     def generate(
         self,
         device: torch.device = torch.device("cpu"),
@@ -115,18 +167,10 @@ class AdaptiveDensityScheduler:
                 continue
 
             subdivided += 1
-            for o in range(self.n_children):
-                child_mass = mass * float(p1[o])
-                if child_mass <= 0.0:
-                    continue
-                child_cell = b * cell + self._offsets[o]
-                z_child = z
-                if z_fn is not None:
-                    e_child = self._node_embedding(child_cell, depth + 1, child_mass).to(device)
-                    z_child = z_fn(z, e_child)
-                ctx_child = ctx_fn(child_cell, depth + 1) if ctx_fn else None
-                p_c, h_c = self.evaluate_block(child_cell, depth + 1, child_mass, device, z=z_child, ctx=ctx_child)
-                heapq.heappush(heap, (-self._score(h_c, child_mass), next(counter), depth + 1, child_cell, child_mass, p_c, h_c, z_child))
+            children = self._evaluate_children_batch(cell, depth, mass, p1, device, z, ctx_fn, z_fn)
+            for child_cell, child_mass, p_c, h_c, z_child in children:
+                heapq.heappush(heap, (-self._score(h_c, child_mass), next(counter), depth + 1,
+                                      child_cell, child_mass, p_c, h_c, z_child))
 
         stats = GenerationStats(evaluated=evaluated, leaves=len(leaves), pruned=pruned, subdivided=subdivided)
         if k_full is not None and k_full > 0:
