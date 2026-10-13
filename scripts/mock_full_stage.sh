@@ -118,7 +118,7 @@ ln -sfn /tmp/psf_mock/03001627 ~/psf_mock_root/ShapeNetCore.v2.PC15k/03001627
 CKPT=$(ls -t output/train_flow/*/epoch_*.pth 2>/dev/null | head -1)
 echo "ckpt: $CKPT"
 if [ -n "$CKPT" ]; then
-  .venv/bin/python -u test_flow.py --category chair --bs 4 --workers 0 --step 1 \
+  .venv/bin/python -u test_flow.py --category chair --batch_size 4 --workers 0 --step 1 \
     --dataroot ~/psf_mock_root/ShapeNetCore.v2.PC15k/ --model "$CKPT" \
     > output/mock/m8_test.log 2>&1 \
     && check M8c_psf_test 0 || check M8c_psf_test 1
