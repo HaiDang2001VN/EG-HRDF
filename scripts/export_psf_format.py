@@ -24,7 +24,7 @@ def main():
     parser.add_argument("--config", default="chair")
     parser.add_argument("--splits", nargs="+", default=["train", "val"])
     parser.add_argument("--mode", choices=["category", "all"], default="category")
-    parser.add_argument("--n-points", type=int, default=16384)
+    parser.add_argument("--n-points", type=int, default=15000)
     parser.add_argument("--out", default="data/psf_export")
     parser.add_argument("--max-objects", type=int, default=0)
     parser.add_argument("--seed", type=int, default=0)
