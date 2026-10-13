@@ -449,7 +449,8 @@ def train(gpu, opt, output_dir, noises_init):
                 model.load_state_dict(
                     torch.load('%s/epoch_%d.pth' % (output_dir, epoch), map_location=map_location)['model_state'])
 
-    dist.destroy_process_group()
+    if torch.distributed.is_available() and torch.distributed.is_initialized():
+        dist.destroy_process_group()
 
 def main():
     opt = parse_args()
