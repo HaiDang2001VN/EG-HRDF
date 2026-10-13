@@ -541,6 +541,10 @@ def parse_args():
 
 
     opt = parser.parse_args()
+    opt.saveIter = int(opt.saveIter)
+    opt.diagIter = int(opt.diagIter)
+    opt.vizIter = int(opt.vizIter)
+    opt.print_freq = int(opt.print_freq)
 
     return opt
 

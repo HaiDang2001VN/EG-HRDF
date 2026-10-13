@@ -663,6 +663,10 @@ def parse_args():
 
     opt = parser.parse_args()
 
+    for key in ("saveIter", "diagIter", "vizIter", "print_freq"):
+        if hasattr(opt, key):
+            setattr(opt, key, int(getattr(opt, key)))
+
     if torch.cuda.is_available():
         opt.cuda = True
     else:
